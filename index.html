@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Pauta — Amuleto / Emprender en Orden</title>
+<style>
+  :root{
+    --bg:#f5f5f3; --card:#ffffff; --border:#e2e2df; --text:#1c1c1a; --muted:#77766f;
+    --red-bg:#fbe1e1; --red-tx:#8c2a2a; --amber-bg:#fbeecb; --amber-tx:#8a5b0a; --green-bg:#e1f0d8; --green-tx:#2e6b1f;
+    --accent:#2f5f4f;
+  }
+  *{box-sizing:border-box;}
+  body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:20px;}
+  h1{font-size:18px;margin:0 0 16px;}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
+  button{font-size:13px;padding:6px 14px;border:1px solid var(--border);background:#fff;border-radius:6px;cursor:pointer;}
+  button.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  input,select{font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;background:#fff;}
+  th,td{padding:6px;border-bottom:1px solid var(--border);text-align:left;}
+  th{background:#fafaf8;color:var(--muted);font-weight:bold;white-space:nowrap;}
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:8px;}
+  .off{opacity:.4;}
+  .r-ok{background:var(--green-bg);color:var(--green-tx);}
+  .r-warn{background:var(--amber-bg);color:var(--amber-tx);}
+  .r-bad{background:var(--red-bg);color:var(--red-tx);}
+  .card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+  .metric{background:#fafaf8;border-radius:6px;padding:12px;}
+  .metric p{margin:0;}
+  .metric .lbl{font-size:12px;color:var(--muted);}
+  .metric .val{font-size:20px;font-weight:bold;}
+  .rank{font-size:12px;}
+  .rank div{display:flex;justify-content:space-between;padding:5px 6px;border-bottom:1px solid var(--border);}
+  .hidden{display:none;}
+  .config{font-size:12px;color:var(--muted);}
+  .small{font-size:11px;color:var(--muted);}
+</style>
+</head>
+<body>
+<h1>Pauta Meta Ads</h1>
+
+<div class="row">
+  <button id="brand-amuleto" class="active">Amuleto</button>
+  <button id="brand-emprender">Emprender en Orden</button>
+  <span style="flex:1"></span>
+  <button id="btn-config">Configurar URLs</button>
+</div>
+
+<div id="config-panel" class="card hidden">
+  <p class="config">Pegá acá la URL de cada Apps Script Web App (Implementar &gt; Nueva implementación &gt; Aplicación web). Se guarda en este navegador.</p>
+  <div class="row"><label style="width:160px">URL Amuleto</label><input id="url-amuleto" style="flex:1" placeholder="https://script.google.com/macros/s/.../exec"></div>
+  <div class="row"><label style="width:160px">URL Emprender en Orden</label><input id="url-emprender" style="flex:1" placeholder="https://script.google.com/macros/s/.../exec"></div>
+  <button id="save-config">Guardar</button>
+</div>
+
+<div class="row" id="tabbar">
+  <button id="tab-anuncios" class="active">Anuncios</button>
+  <button id="tab-reglas">Reglas</button>
+  <button id="tab-resumen">Resumen</button>
+</div>
+
+<div id="panel-anuncios">
+  <div class="row">
+    <button id="filter-activos" class="active">Solo activos</button>
+    <button id="filter-todos">Todos</button>
+    <span style="flex:1"></span>
+    <button id="btn-nuevo-anuncio">+ Anuncio</button>
+    <button id="btn-nuevo-dato">+ Dato semanal</button>
+    <button id="btn-refrescar">Refrescar</button>
+  </div>
+  <div class="tbl-wrap"><table id="tabla-anuncios"></table></div>
+</div>
+
+<div id="panel-reglas" class="hidden">
+  <div class="card">
+    <p><b>Sintaxis:</b> METRICA operador valor, combinando con Y / O. Operadores: &gt; &lt; &gt;= &lt;= =</p>
+    <table id="tabla-reglas"></table>
+    <div class="row" style="margin-top:10px">
+      <button id="btn-agregar-regla">+ Agregar regla</button>
+      <button id="btn-guardar-reglas">Guardar reglas</button>
+    </div>
+  </div>
+</div>
+
+<div id="panel-resumen" class="hidden">
+  <div class="row">
+    <button class="periodo active" data-dias="7">7 días</button>
+    <button class="periodo" data-dias="15">15 días</button>
+    <button class="periodo" data-dias="30">30 días</button>
+  </div>
+  <div class="grid" id="resumen-cards"></div>
+  <div class="grid" style="margin-top:16px" id="resumen-rankings"></div>
+</div>
+
+<script>
+const METRIC_LABELS = {
+  amuleto: ['CPC','ROAS','Compras'],
+  emprender: ['CPR','Resultados','Seguimientos']
+};
+let brand = 'amuleto';
+let data = null; // {anuncios, anunciosHeaders, reglas, opciones}
+
+function urls(){
+  return { amuleto: localStorage.getItem('url_amuleto')||'', emprender: localStorage.getItem('url_emprender')||'' };
+}
+function currentUrl(){ return urls()[brand]; }
+
+document.getElementById('btn-config').onclick = ()=>{
+  document.getElementById('config-panel').classList.toggle('hidden');
+  document.getElementById('url-amuleto').value = urls().amuleto;
+  document.getElementById('url-emprender').value = urls().emprender;
+};
+document.getElementById('save-config').onclick = ()=>{
+  localStorage.setItem('url_amuleto', document.getElementById('url-amuleto').value.trim());
+  localStorage.setItem('url_emprender', document.getElementById('url-emprender').value.trim());
+  document.getElementById('config-panel').classList.add('hidden');
+  cargar();
+};
+
+function setBrand(b){
+  brand = b;
+  document.getElementById('brand-amuleto').classList.toggle('active', b==='amuleto');
+  document.getElementById('brand-emprender').classList.toggle('active', b==='emprender');
+  cargar();
+}
+document.getElementById('brand-amuleto').onclick = ()=>setBrand('amuleto');
+document.getElementById('brand-emprender').onclick = ()=>setBrand('emprender');
+
+['anuncios','reglas','resumen'].forEach(t=>{
+  document.getElementById('tab-'+t).onclick = ()=>{
+    ['anuncios','reglas','resumen'].forEach(x=>{
+      document.getElementById('tab-'+x).classList.toggle('active', x===t);
+      document.getElementById('panel-'+x).classList.toggle('hidden', x!==t);
+    });
+  };
+});
+
+let soloActivos = true;
+document.getElementById('filter-activos').onclick = ()=>{ soloActivos = true; toggleFiltro(); renderAnuncios(); };
+document.getElementById('filter-todos').onclick = ()=>{ soloActivos = false; toggleFiltro(); renderAnuncios(); };
+function toggleFiltro(){
+  document.getElementById('filter-activos').classList.toggle('active', soloActivos);
+  document.getElementById('filter-todos').classList.toggle('active', !soloActivos);
+}
+document.getElementById('btn-refrescar').onclick = cargar;
+
+async function cargar(){
+  const u = currentUrl();
+  if(!u){ document.getElementById('tabla-anuncios').innerHTML = '<tr><td class="small">Configurá primero la URL de esta marca (botón "Configurar URLs").</td></tr>'; return; }
+  const res = await fetch(u);
+  data = await res.json();
+  renderAnuncios();
+  renderReglas();
+  renderResumen(7);
+}
+
+// ---------- ANUNCIOS ----------
+function weekBlocks(headers){
+  // detecta bloques "+Nd metric" agrupando por N
+  const blocks = {}; // dias -> [headerNames]
+  headers.forEach(h=>{
+    const m = String(h).match(/^\+(\d+) días (.+)$/);
+    if(m){
+      const dias = parseInt(m[1],10);
+      blocks[dias] = blocks[dias] || [];
+      blocks[dias].push(h);
+    }
+  });
+  return Object.keys(blocks).map(Number).sort((a,b)=>a-b).map(d=>({dias:d, cols:blocks[d]}));
+}
+
+function parseCond(cond, metricas){
+  // cond ej: "CPC > 10000 Y ROAS < 3.5"
+  const parts = cond.split(/\s+Y\s+|\s+O\s+/i);
+  const isOr = /\sO\s/i.test(cond);
+  const results = parts.map(p=>{
+    const m = p.trim().match(/([A-Za-zÁÉÍÓÚñÑ]+)\s*(>=|<=|>|<|=)\s*([\d.]+)/);
+    if(!m) return null;
+    const [_, metric, op, val] = m;
+    const v = metricas[metric];
+    if(v === undefined || v === '') return null;
+    const num = parseFloat(v), target = parseFloat(val);
+    switch(op){ case '>': return num>target; case '<': return num<target; case '>=': return num>=target; case '<=': return num<=target; case '=': return num===target; }
+    return null;
+  });
+  if(results.some(r=>r===null)) return null;
+  return isOr ? results.some(Boolean) : results.every(Boolean);
+}
+
+function ruleColor(metricas){
+  if(!data.reglas || !data.reglas.length) return '';
+  for(const r of data.reglas){
+    if(!r.Condición) continue;
+    const ok = parseCond(r.Condición, metricas);
+    if(ok){
+      if(r.Color === 'Rojo') return 'r-bad';
+      if(r.Color === 'Ámbar' || r.Color === 'Ambar') return 'r-warn';
+      if(r.Color === 'Verde') return 'r-ok';
+    }
+  }
+  return '';
+}
+
+function renderAnuncios(){
+  if(!data) return;
+  const blocks = weekBlocks(data.anunciosHeaders);
+  const metricLabels = METRIC_LABELS[brand];
+  let rows = data.anuncios.slice();
+  rows = rows.filter(r=> !soloActivos || r.Estado === 'Activo');
+  rows.sort((a,b)=>{
+    if(a.Estado !== b.Estado) return a.Estado === 'Activo' ? -1 : 1;
+    if(a.Campaña !== b.Campaña) return String(a.Campaña).localeCompare(String(b.Campaña));
+    if(a.Conjunto !== b.Conjunto) return String(a.Conjunto).localeCompare(String(b.Conjunto));
+    return new Date(b['Fecha inicio']) - new Date(a['Fecha inicio']); // más nuevo arriba
+  });
+
+  let thead = '<tr><th></th><th>Campaña</th><th>Conjunto</th><th>Anuncio</th><th>Formato</th><th>Hook</th><th>Ángulo</th><th>Inicio</th>';
+  blocks.forEach(b=>{ thead += `<th colspan="${b.cols.length}" style="text-align:center;border-left:1px solid var(--border)">+${b.dias}d</th>`; });
+  thead += '</tr><tr><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th>';
+  blocks.forEach(b=>{ b.cols.forEach((c,i)=>{ thead += `<th style="${i===0?'border-left:1px solid var(--border)':''}">${metricLabels[i]||c}</th>`; }); });
+  thead += '</tr>';
+
+  let tbody = '';
+  rows.forEach(r=>{
+    const off = r.Estado !== 'Activo' ? 'off' : '';
+    tbody += `<tr class="${off}"><td><input type="checkbox" data-id="${r.ID}" ${r.Estado==='Activo'?'checked':''} class="toggle-estado"></td>`;
+    tbody += `<td>${r.Campaña||''}</td><td>${r.Conjunto||''}</td><td><b>${r.Anuncio||''}</b></td>`;
+    ['Formato','Hook','Ángulo'].forEach(f=>{
+      const opts = (data.opciones[f.toLowerCase().replace('á','a')]||[]);
+      let sel = `<select data-id="${r.ID}" data-field="${f}" class="edit-attr"><option value=""></option>`;
+      opts.forEach(o=> sel += `<option ${o===r[f]?'selected':''}>${o}</option>`);
+      sel += '</select>';
+      tbody += `<td>${sel}</td>`;
+    });
+    tbody += `<td>${r['Fecha inicio']||''}</td>`;
+    blocks.forEach(b=>{
+      const metricas = {};
+      b.cols.forEach((c,i)=>{ metricas[metricLabels[i]] = r[c]; });
+      const hasData = b.cols.some(c=> r[c] !== '' && r[c] !== undefined);
+      const cls = hasData ? ruleColor(metricas) : '';
+      b.cols.forEach((c,i)=>{
+        tbody += `<td class="${cls}" style="${i===0?'border-left:1px solid var(--border)':''}">${r[c]!==undefined&&r[c]!==''? r[c] : '—'}</td>`;
+      });
+    });
+    tbody += '</tr>';
+  });
+  document.getElementById('tabla-anuncios').innerHTML = '<thead>'+thead+'</thead><tbody>'+tbody+'</tbody>';
+
+  document.querySelectorAll('.toggle-estado').forEach(el=>{
+    el.onchange = async ()=>{
+      await postAction({ action:'updateAd', id:el.dataset.id, estado: el.checked?'Activo':'Apagado' });
+      cargar();
+    };
+  });
+  document.querySelectorAll('.edit-attr').forEach(el=>{
+    el.onchange = async ()=>{
+      const body = { action:'updateAd', id: el.dataset.id };
+      body[el.dataset.field.toLowerCase().replace('á','a')] = el.value;
+      await postAction(body);
+      cargar();
+    };
+  });
+}
+
+async function postAction(body){
+  const u = currentUrl();
+  if(!u) return;
+  await fetch(u, { method:'POST', body: JSON.stringify(body) });
+}
+
+document.getElementById('btn-nuevo-anuncio').onclick = async ()=>{
+  const campana = prompt('Campaña:'); if(campana===null) return;
+  const conjunto = prompt('Conjunto:'); if(conjunto===null) return;
+  const anuncio = prompt('Nombre del anuncio:'); if(anuncio===null) return;
+  const fechaInicio = prompt('Fecha inicio (AAAA-MM-DD):', new Date().toISOString().slice(0,10)); if(fechaInicio===null) return;
+  await postAction({ action:'addAd', campana, conjunto, anuncio, fechaInicio, estado:'Activo' });
+  cargar();
+};
+
+document.getElementById('btn-nuevo-dato').onclick = async ()=>{
+  const id = prompt('ID del anuncio (ej: AD-0001):'); if(!id) return;
+  const dias = prompt('Antigüedad en días (7, 14, 21...):'); if(!dias) return;
+  const labels = METRIC_LABELS[brand];
+  const metricas = {};
+  for(const l of labels){
+    const v = prompt(l+':');
+    if(v===null) return;
+    metricas[l] = parseFloat(v);
+  }
+  await postAction({ action:'setWeekBlock', id, dias: parseInt(dias,10), metricas });
+  cargar();
+};
+
+// ---------- REGLAS ----------
+function renderReglas(){
+  if(!data) return;
+  let html = '<tr><th>Color</th><th>Condición</th><th>Acción sugerida</th></tr>';
+  data.reglas.forEach((r,i)=>{
+    html += `<tr>
+      <td><select data-i="${i}" class="regla-color"><option ${r.Color==='Rojo'?'selected':''}>Rojo</option><option ${r.Color==='Ámbar'?'selected':''}>Ámbar</option><option ${r.Color==='Verde'?'selected':''}>Verde</option></select></td>
+      <td><input data-i="${i}" class="regla-cond" style="width:100%" value="${r.Condición||''}"></td>
+      <td><input data-i="${i}" class="regla-accion" style="width:100%" value="${r['Acción sugerida']||''}"></td>
+    </tr>`;
+  });
+  document.getElementById('tabla-reglas').innerHTML = html;
+}
+document.getElementById('btn-agregar-regla').onclick = ()=>{
+  data.reglas.push({ Color:'Ámbar', Condición:'', 'Acción sugerida':'' });
+  renderReglas();
+};
+document.getElementById('btn-guardar-reglas').onclick = async ()=>{
+  const reglas = data.reglas.map((r,i)=>({
+    color: document.querySelector(`.regla-color[data-i="${i}"]`).value,
+    condicion: document.querySelector(`.regla-cond[data-i="${i}"]`).value,
+    accion: document.querySelector(`.regla-accion[data-i="${i}"]`).value,
+  }));
+  await postAction({ action:'setRules', reglas });
+  cargar();
+};
+
+// ---------- RESUMEN ----------
+document.querySelectorAll('.periodo').forEach(b=>{
+  b.onclick = ()=>{
+    document.querySelectorAll('.periodo').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    renderResumen(parseInt(b.dataset.dias,10));
+  };
+});
+
+function renderResumen(periodoDias){
+  if(!data) return;
+  const blocks = weekBlocks(data.anunciosHeaders);
+  const metricLabels = METRIC_LABELS[brand];
+  const perfMetric = metricLabels[1]; // ROAS o Resultados
+  const hoy = new Date();
+  const desde = new Date(hoy.getTime() - periodoDias*86400000);
+
+  const puntos = []; // {ad, formato, hook, angulo, valor}
+  let sumaPerf = 0, cuentaPerf = 0, nuevosCount = 0, activos = 0, apagados = 0;
+
+  data.anuncios.forEach(ad=>{
+    if(ad.Estado==='Activo') activos++; else apagados++;
+    const inicio = new Date(ad['Fecha inicio']);
+    if(!isNaN(inicio) && (hoy - inicio) <= periodoDias*86400000) nuevosCount++;
+    blocks.forEach(b=>{
+      const fechaBloque = new Date(inicio.getTime() + b.dias*86400000);
+      if(fechaBloque < desde || fechaBloque > hoy) return;
+      const val = ad[b.cols[1]]; // segunda métrica del bloque = ROAS/Resultados
+      if(val === '' || val === undefined) return;
+      sumaPerf += parseFloat(val); cuentaPerf++;
+      puntos.push({ formato: ad.Formato, hook: ad.Hook, angulo: ad['Ángulo'], valor: parseFloat(val) });
+    });
+  });
+
+  const antigDias = data.anuncios.filter(a=>a.Estado==='Activo').map(a=>{
+    const d = new Date(a['Fecha inicio']);
+    return isNaN(d) ? null : Math.round((hoy-d)/86400000);
+  }).filter(v=>v!==null);
+  const antigProm = antigDias.length ? Math.round(antigDias.reduce((a,b)=>a+b,0)/antigDias.length) : 0;
+
+  document.getElementById('resumen-cards').innerHTML = `
+    <div class="metric"><p class="lbl">${perfMetric} promedio</p><p class="val">${cuentaPerf? (sumaPerf/cuentaPerf).toFixed(1):'—'}</p></div>
+    <div class="metric"><p class="lbl">Anuncios nuevos en el período</p><p class="val">${nuevosCount}</p></div>
+    <div class="metric"><p class="lbl">% activos vs apagados</p><p class="val">${activos+apagados? Math.round(100*activos/(activos+apagados)):0}%</p></div>
+    <div class="metric"><p class="lbl">Antigüedad promedio (activos)</p><p class="val">${antigProm} d</p></div>
+  `;
+
+  function rankBy(field){
+    const grupos = {};
+    puntos.forEach(p=>{
+      const k = p[field] || '(sin dato)';
+      grupos[k] = grupos[k] || [];
+      grupos[k].push(p.valor);
+    });
+    return Object.keys(grupos).map(k=>({ name:k, val: grupos[k].reduce((a,b)=>a+b,0)/grupos[k].length }));
+  }
+  function rankHtml(title, arr, asc){
+    const sorted = arr.slice().sort((a,b)=> asc ? a.val-b.val : b.val-a.val).slice(0,5);
+    return `<div><p class="lbl" style="font-weight:bold;margin-bottom:6px">${title}</p><div class="rank">${
+      sorted.map((it,i)=>`<div><span>${i+1}. ${it.name}</span><span><b>${it.val.toFixed(1)}</b></span></div>`).join('')
+    }</div></div>`;
+  }
+  const byFmt = rankBy('formato'), byHook = rankBy('hook'), byAng = rankBy('angulo');
+  document.getElementById('resumen-rankings').innerHTML =
+    rankHtml('Top 5 formatos — mejor '+perfMetric, byFmt, false) +
+    rankHtml('Top 5 formatos — peor '+perfMetric, byFmt, true) +
+    rankHtml('Top 5 hooks — mejor '+perfMetric, byHook, false) +
+    rankHtml('Top 5 hooks — peor '+perfMetric, byHook, true) +
+    rankHtml('Top 5 ángulos — mejor '+perfMetric, byAng, false) +
+    rankHtml('Top 5 ángulos — peor '+perfMetric, byAng, true);
+}
+
+cargar();
+</script>
+</body>
+</html>
