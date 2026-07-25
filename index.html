@@ -63,11 +63,24 @@
 
 <div id="panel-creativos">
   <div class="row"><button id="btn-nuevo-creativo">+ Creativo</button><button id="btn-refrescar-c">Refrescar</button></div>
+  <div id="form-creativo" class="card hidden">
+    <div class="row"><label style="width:110px">Título</label><input id="fc-titulo" style="flex:1"></div>
+    <div class="row"><label style="width:110px">Formato</label><select id="fc-formato" style="flex:1"></select><button data-tipo="formato" data-target="fc-formato" class="btn-add-opcion">+</button></div>
+    <div class="row"><label style="width:110px">Hook</label><select id="fc-hook" style="flex:1"></select><button data-tipo="hook" data-target="fc-hook" class="btn-add-opcion">+</button></div>
+    <div class="row"><label style="width:110px">Producto</label><select id="fc-producto" style="flex:1"></select><button data-tipo="producto" data-target="fc-producto" class="btn-add-opcion">+</button></div>
+    <div class="row"><label style="width:110px">Ángulo/dolor</label><select id="fc-angulo" style="flex:1"></select><button data-tipo="angulo" data-target="fc-angulo" class="btn-add-opcion">+</button></div>
+    <div class="row"><button id="fc-guardar">Guardar creativo</button><button id="fc-cancelar">Cancelar</button></div>
+  </div>
   <div class="tbl-wrap"><table id="tabla-creativos"></table></div>
 </div>
 
 <div id="panel-publicos" class="hidden">
   <div class="row"><button id="btn-nuevo-publico">+ Público</button></div>
+  <div id="form-publico" class="card hidden">
+    <div class="row"><label style="width:110px">Título</label><input id="fp-titulo" style="flex:1"></div>
+    <div class="row"><label style="width:110px">Intereses</label><input id="fp-intereses" style="flex:1"></div>
+    <div class="row"><button id="fp-guardar">Guardar público</button><button id="fp-cancelar">Cancelar</button></div>
+  </div>
   <div class="tbl-wrap"><table id="tabla-publicos"></table></div>
 </div>
 
@@ -78,6 +91,35 @@
     <span style="flex:1"></span>
     <button id="btn-nueva-estructura">+ Estructura</button>
     <button id="btn-nuevo-dato">+ Dato semanal</button>
+  </div>
+  <div id="form-estructura" class="card hidden">
+    <div class="row">
+      <label style="width:110px">Campaña</label>
+      <select id="fe-campana-select" style="flex:1"></select>
+      <input id="fe-campana-nueva" style="flex:1" placeholder="Nombre de la campaña nueva" class="hidden">
+    </div>
+    <div class="row">
+      <label style="width:110px">Público</label>
+      <select id="fe-publico-select" style="flex:1"></select>
+    </div>
+    <div id="fe-publico-nuevo" class="hidden" style="margin:0 0 8px 118px">
+      <div class="row"><input id="fe-publico-titulo" placeholder="Título del público" style="flex:1"><input id="fe-publico-intereses" placeholder="Intereses" style="flex:1"></div>
+    </div>
+    <div class="row">
+      <label style="width:110px">Creativo</label>
+      <select id="fe-creativo-select" style="flex:1"></select>
+    </div>
+    <div id="fe-creativo-nuevo" class="hidden" style="margin:0 0 8px 118px">
+      <div class="row"><input id="fe-creativo-titulo" placeholder="Título del creativo" style="flex:1"></div>
+      <div class="row">
+        <select id="fe-creativo-formato" style="flex:1"></select>
+        <select id="fe-creativo-hook" style="flex:1"></select>
+        <select id="fe-creativo-producto" style="flex:1"></select>
+        <select id="fe-creativo-angulo" style="flex:1"></select>
+      </div>
+    </div>
+    <div class="row"><label style="width:110px">Fecha inicio</label><input id="fe-fecha" type="date" style="flex:1"></div>
+    <div class="row"><button id="fe-guardar">Crear estructura</button><button id="fe-cancelar">Cancelar</button></div>
   </div>
   <div class="tbl-wrap"><table id="tabla-estructura"></table></div>
 </div>
@@ -165,16 +207,41 @@ function renderCreativos(){
   });
   document.getElementById('tabla-creativos').innerHTML = html;
 }
+function fillSelect(sel, options, placeholder){
+  sel.innerHTML = (placeholder ? `<option value="">${placeholder}</option>` : '') + options.map(o=>`<option>${o}</option>`).join('');
+}
+function openCreativoForm(){
+  fillSelect(document.getElementById('fc-formato'), data.opciones.formato, '(elegir)');
+  fillSelect(document.getElementById('fc-hook'), data.opciones.hook, '(elegir)');
+  fillSelect(document.getElementById('fc-producto'), data.opciones.producto, '(elegir)');
+  fillSelect(document.getElementById('fc-angulo'), data.opciones.angulo, '(elegir)');
+  document.getElementById('fc-titulo').value = '';
+  document.getElementById('form-creativo').classList.remove('hidden');
+}
 document.getElementById('btn-refrescar-c').onclick = cargar;
-document.getElementById('btn-nuevo-creativo').onclick = async ()=>{
-  const titulo = prompt('Título del creativo:'); if(!titulo) return;
-  const formato = prompt('Formato (foto, carrusel, video ugc, video explicativo...):'); if(formato===null) return;
-  const hook = prompt('Hook:'); if(hook===null) return;
-  const producto = prompt('Producto:'); if(producto===null) return;
-  const angulo = prompt('Ángulo / dolor:'); if(angulo===null) return;
-  await postAction({ action:'addCreativo', titulo, formato, hook, producto, angulo });
+document.getElementById('btn-nuevo-creativo').onclick = openCreativoForm;
+document.getElementById('fc-cancelar').onclick = ()=> document.getElementById('form-creativo').classList.add('hidden');
+document.getElementById('fc-guardar').onclick = async ()=>{
+  const titulo = document.getElementById('fc-titulo').value.trim();
+  if(!titulo){ alert('Falta el título.'); return; }
+  await postAction({ action:'addCreativo', titulo,
+    formato: document.getElementById('fc-formato').value,
+    hook: document.getElementById('fc-hook').value,
+    producto: document.getElementById('fc-producto').value,
+    angulo: document.getElementById('fc-angulo').value });
+  document.getElementById('form-creativo').classList.add('hidden');
   cargar();
 };
+document.querySelectorAll('.btn-add-opcion').forEach(btn=>{
+  btn.onclick = async ()=>{
+    const valor = prompt('Nueva opción de '+btn.dataset.tipo+':');
+    if(!valor) return;
+    await postAction({ action:'addOption', tipo: btn.dataset.tipo, valor });
+    await cargar();
+    const sel = document.getElementById(btn.dataset.target);
+    if(sel){ sel.value = valor; }
+  };
+});
 
 // ---------- PUBLICOS ----------
 function renderPublicos(){
@@ -185,10 +252,16 @@ function renderPublicos(){
   });
   document.getElementById('tabla-publicos').innerHTML = html;
 }
-document.getElementById('btn-nuevo-publico').onclick = async ()=>{
-  const titulo = prompt('Título del público:'); if(!titulo) return;
-  const intereses = prompt('Intereses (si corresponde):') || '';
-  await postAction({ action:'addPublico', titulo, intereses });
+document.getElementById('btn-nuevo-publico').onclick = ()=>{
+  document.getElementById('fp-titulo').value=''; document.getElementById('fp-intereses').value='';
+  document.getElementById('form-publico').classList.remove('hidden');
+};
+document.getElementById('fp-cancelar').onclick = ()=> document.getElementById('form-publico').classList.add('hidden');
+document.getElementById('fp-guardar').onclick = async ()=>{
+  const titulo = document.getElementById('fp-titulo').value.trim();
+  if(!titulo){ alert('Falta el título.'); return; }
+  await postAction({ action:'addPublico', titulo, intereses: document.getElementById('fp-intereses').value.trim() });
+  document.getElementById('form-publico').classList.add('hidden');
   cargar();
 };
 
@@ -284,17 +357,79 @@ function renderEstructura(){
   });
 }
 
-document.getElementById('btn-nueva-estructura').onclick = async ()=>{
-  if(!data.publicos.length){ alert('Primero cargá al menos un Público.'); return; }
-  if(!data.creativos.length){ alert('Primero cargá al menos un Creativo.'); return; }
-  const campana = prompt('Campaña:'); if(campana===null) return;
-  const publicoLista = data.publicos.map(p=>`${p.ID}: ${p.Título}`).join('\n');
-  const publicoId = prompt('Elegí el ID del público:\n'+publicoLista); if(!publicoId) return;
-  const creativoLista = data.creativos.map(c=>`${c.ID}: ${c.Título}`).join('\n');
-  const creativoId = prompt('Elegí el ID del creativo:\n'+creativoLista); if(!creativoId) return;
-  const fechaInicio = prompt('Fecha inicio (AAAA-MM-DD):', new Date().toISOString().slice(0,10)); if(!fechaInicio) return;
+function openEstructuraForm(){
+  const campanas = [...new Set(data.estructura.map(e=>e.Campaña).filter(Boolean))];
+  fillSelect(document.getElementById('fe-campana-select'), [...campanas, '+ Nueva campaña'], '(elegir)');
+  document.getElementById('fe-campana-nueva').classList.add('hidden');
+  document.getElementById('fe-campana-nueva').value = '';
+
+  const pubSel = document.getElementById('fe-publico-select');
+  pubSel.innerHTML = '<option value="">(elegir)</option>' +
+    data.publicos.map(p=>`<option value="${p.ID}">${p.Título}</option>`).join('') +
+    '<option value="__nuevo__">+ Nuevo público</option>';
+  document.getElementById('fe-publico-nuevo').classList.add('hidden');
+  document.getElementById('fe-publico-titulo').value=''; document.getElementById('fe-publico-intereses').value='';
+
+  const creSel = document.getElementById('fe-creativo-select');
+  creSel.innerHTML = '<option value="">(elegir)</option>' +
+    data.creativos.map(c=>`<option value="${c.ID}">${c.Título}</option>`).join('') +
+    '<option value="__nuevo__">+ Nuevo creativo</option>';
+  document.getElementById('fe-creativo-nuevo').classList.add('hidden');
+  document.getElementById('fe-creativo-titulo').value='';
+  fillSelect(document.getElementById('fe-creativo-formato'), data.opciones.formato, '(elegir)');
+  fillSelect(document.getElementById('fe-creativo-hook'), data.opciones.hook, '(elegir)');
+  fillSelect(document.getElementById('fe-creativo-producto'), data.opciones.producto, '(elegir)');
+  fillSelect(document.getElementById('fe-creativo-angulo'), data.opciones.angulo, '(elegir)');
+
+  document.getElementById('fe-fecha').value = new Date().toISOString().slice(0,10);
+  document.getElementById('form-estructura').classList.remove('hidden');
+}
+document.getElementById('btn-nueva-estructura').onclick = ()=>{
+  if(!data.publicos.length && !confirm('Todavía no cargaste ningún Público — vas a tener que crear uno nuevo acá. ¿Seguir?')) return;
+  if(!data.creativos.length && !confirm('Todavía no cargaste ningún Creativo — vas a tener que crear uno nuevo acá. ¿Seguir?')) return;
+  openEstructuraForm();
+};
+document.getElementById('fe-cancelar').onclick = ()=> document.getElementById('form-estructura').classList.add('hidden');
+document.getElementById('fe-campana-select').onchange = (e)=>{
+  document.getElementById('fe-campana-nueva').classList.toggle('hidden', e.target.value !== '+ Nueva campaña');
+};
+document.getElementById('fe-publico-select').onchange = (e)=>{
+  document.getElementById('fe-publico-nuevo').classList.toggle('hidden', e.target.value !== '__nuevo__');
+};
+document.getElementById('fe-creativo-select').onchange = (e)=>{
+  document.getElementById('fe-creativo-nuevo').classList.toggle('hidden', e.target.value !== '__nuevo__');
+};
+document.getElementById('fe-guardar').onclick = async ()=>{
+  let campana = document.getElementById('fe-campana-select').value;
+  if(campana === '+ Nueva campaña') campana = document.getElementById('fe-campana-nueva').value.trim();
+  if(!campana){ alert('Falta la campaña.'); return; }
+
+  let publicoId = document.getElementById('fe-publico-select').value;
+  if(publicoId === '__nuevo__'){
+    const titulo = document.getElementById('fe-publico-titulo').value.trim();
+    if(!titulo){ alert('Falta el título del público nuevo.'); return; }
+    const r = await postAction({ action:'addPublico', titulo, intereses: document.getElementById('fe-publico-intereses').value.trim() });
+    publicoId = r.id;
+  }
+  if(!publicoId){ alert('Falta elegir un público.'); return; }
+
+  let creativoId = document.getElementById('fe-creativo-select').value;
+  if(creativoId === '__nuevo__'){
+    const titulo = document.getElementById('fe-creativo-titulo').value.trim();
+    if(!titulo){ alert('Falta el título del creativo nuevo.'); return; }
+    const r = await postAction({ action:'addCreativo', titulo,
+      formato: document.getElementById('fe-creativo-formato').value,
+      hook: document.getElementById('fe-creativo-hook').value,
+      producto: document.getElementById('fe-creativo-producto').value,
+      angulo: document.getElementById('fe-creativo-angulo').value });
+    creativoId = r.id;
+  }
+  if(!creativoId){ alert('Falta elegir un creativo.'); return; }
+
+  const fechaInicio = document.getElementById('fe-fecha').value;
   const r = await postAction({ action:'addEstructura', campana, publicoId, creativoId, fechaInicio });
   if(r && r.error) alert(r.error);
+  document.getElementById('form-estructura').classList.add('hidden');
   cargar();
 };
 document.getElementById('btn-nuevo-dato').onclick = async ()=>{
