@@ -608,11 +608,11 @@ function renderResumen(periodoDias){
   const desde = new Date(hoy.getTime() - periodoDias*86400000);
 
   const puntos = [];
-  let sumaPerf=0, cuentaPerf=0, nuevosCount=0, activos=0, apagados=0;
+  let sumaPerf=0, cuentaPerf=0, nuevosCount=0;
+  const estructurasConDatosEnPeriodo = new Set();
 
   data.estructura.forEach(ad=>{
     const cre = creativoById(ad.CreativoID);
-    if(ad.Estado==='Activo') activos++; else apagados++;
     const inicio = new Date(ad['Fecha inicio']);
     if(!isNaN(inicio) && (hoy-inicio) <= periodoDias*86400000) nuevosCount++;
     blocks.forEach(b=>{
@@ -620,43 +620,56 @@ function renderResumen(periodoDias){
       if(fechaBloque<desde || fechaBloque>hoy) return;
       const val = ad[b.cols[1]];
       if(val==='' || val===undefined) return;
+      estructurasConDatosEnPeriodo.add(ad.ID);
       sumaPerf += parseFloat(val); cuentaPerf++;
-      puntos.push({ formato: cre.Formato, hook: cre.Hook, angulo: cre['Ángulo / dolor'], valor: parseFloat(val) });
+      puntos.push({
+        formato: cre.Formato, hook: cre.Hook, angulo: cre['Ángulo / dolor'],
+        combo: (cre.Formato||'?')+' + '+(cre.Hook||'?'),
+        conjunto: ad.Conjunto, valor: parseFloat(val)
+      });
     });
   });
 
-  const antigDias = data.estructura.filter(a=>a.Estado==='Activo').map(a=>{
+  const estructurasEnPeriodo = data.estructura.filter(ad=> estructurasConDatosEnPeriodo.has(ad.ID));
+  const activosEnPeriodo = estructurasEnPeriodo.filter(a=>a.Estado==='Activo');
+  const pctActivos = estructurasEnPeriodo.length ? Math.round(100*activosEnPeriodo.length/estructurasEnPeriodo.length) : null;
+  const antigDias = activosEnPeriodo.map(a=>{
     const d = new Date(a['Fecha inicio']);
     return isNaN(d) ? null : Math.round((hoy-d)/86400000);
   }).filter(v=>v!==null);
-  const antigProm = antigDias.length ? Math.round(antigDias.reduce((a,b)=>a+b,0)/antigDias.length) : 0;
+  const antigProm = antigDias.length ? Math.round(antigDias.reduce((a,b)=>a+b,0)/antigDias.length) : null;
 
   document.getElementById('resumen-cards').innerHTML = `
     <div class="metric"><p class="lbl">${perfMetric} promedio</p><p class="val">${cuentaPerf?(sumaPerf/cuentaPerf).toFixed(1):'—'}</p></div>
     <div class="metric"><p class="lbl">Estructuras nuevas en el período</p><p class="val">${nuevosCount}</p></div>
-    <div class="metric"><p class="lbl">% activos vs apagados</p><p class="val">${activos+apagados?Math.round(100*activos/(activos+apagados)):0}%</p></div>
-    <div class="metric"><p class="lbl">Antigüedad promedio (activos)</p><p class="val">${antigProm} d</p></div>
+    <div class="metric"><p class="lbl">% activos (con datos en el período)</p><p class="val">${pctActivos===null?'—':pctActivos+'%'}</p></div>
+    <div class="metric"><p class="lbl">Antigüedad promedio (activos con datos en el período)</p><p class="val">${antigProm===null?'—':antigProm+' d'}</p></div>
   `;
 
   function rankBy(field){
     const grupos = {};
     puntos.forEach(p=>{ const k=p[field]||'(sin dato)'; grupos[k]=grupos[k]||[]; grupos[k].push(p.valor); });
-    return Object.keys(grupos).map(k=>({ name:k, val: grupos[k].reduce((a,b)=>a+b,0)/grupos[k].length }));
+    return Object.keys(grupos).map(k=>({ name:k, val: grupos[k].reduce((a,b)=>a+b,0)/grupos[k].length, n: grupos[k].length }));
   }
   function rankHtml(title, arr, asc){
     const sorted = arr.slice().sort((a,b)=> asc? a.val-b.val : b.val-a.val).slice(0,5);
+    if(!sorted.length) return `<div><p class="lbl" style="font-weight:bold;margin-bottom:6px">${title}</p><div class="rank"><div><span>Sin datos en este período</span></div></div></div>`;
     return `<div><p class="lbl" style="font-weight:bold;margin-bottom:6px">${title}</p><div class="rank">${
-      sorted.map((it,i)=>`<div><span>${i+1}. ${it.name}</span><span><b>${it.val.toFixed(1)}</b></span></div>`).join('')
+      sorted.map((it,i)=>`<div><span>${i+1}. ${it.name} <span style="color:var(--muted)">(${it.n})</span></span><span><b>${it.val.toFixed(1)}</b></span></div>`).join('')
     }</div></div>`;
   }
-  const byFmt=rankBy('formato'), byHook=rankBy('hook'), byAng=rankBy('angulo');
+  const byFmt=rankBy('formato'), byHook=rankBy('hook'), byAng=rankBy('angulo'), byConj=rankBy('conjunto'), byCombo=rankBy('combo');
   document.getElementById('resumen-rankings').innerHTML =
     rankHtml('Top 5 formatos — mejor '+perfMetric, byFmt, false) +
     rankHtml('Top 5 formatos — peor '+perfMetric, byFmt, true) +
     rankHtml('Top 5 hooks — mejor '+perfMetric, byHook, false) +
     rankHtml('Top 5 hooks — peor '+perfMetric, byHook, true) +
     rankHtml('Top 5 ángulos — mejor '+perfMetric, byAng, false) +
-    rankHtml('Top 5 ángulos — peor '+perfMetric, byAng, true);
+    rankHtml('Top 5 ángulos — peor '+perfMetric, byAng, true) +
+    rankHtml('Top 5 conjuntos (públicos) — mejor '+perfMetric, byConj, false) +
+    rankHtml('Top 5 conjuntos (públicos) — peor '+perfMetric, byConj, true) +
+    rankHtml('Top 5 combinaciones formato+hook — mejor '+perfMetric, byCombo, false) +
+    rankHtml('Top 5 combinaciones formato+hook — peor '+perfMetric, byCombo, true);
 }
 
 cargar();
