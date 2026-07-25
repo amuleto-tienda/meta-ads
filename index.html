@@ -88,6 +88,9 @@
   <div class="row">
     <button id="filter-activos" class="active">Solo activos</button>
     <button id="filter-todos">Todos</button>
+    <select id="filtro-campana" style="min-width:140px"><option value="">Todas las campañas</option></select>
+    <select id="filtro-conjunto" style="min-width:140px"><option value="">Todos los conjuntos</option></select>
+    <input id="filtro-anuncio" placeholder="Buscar anuncio..." style="min-width:160px">
     <span style="flex:1"></span>
     <button id="btn-nueva-estructura">+ Estructura</button>
     <button id="btn-nuevo-dato">+ Dato semanal</button>
@@ -120,6 +123,12 @@
     </div>
     <div class="row"><label style="width:110px">Fecha inicio</label><input id="fe-fecha" type="date" style="flex:1"></div>
     <div class="row"><button id="fe-guardar">Crear estructura</button><button id="fe-cancelar">Cancelar</button></div>
+  </div>
+  <div id="form-dato" class="card hidden">
+    <div class="row"><label style="width:110px">Campaña &gt; Conjunto &gt; Anuncio</label><select id="fd-fila" style="flex:1"></select></div>
+    <div class="row"><label style="width:110px">Antigüedad</label><select id="fd-dias" style="flex:1"></select></div>
+    <div id="fd-metricas"></div>
+    <div class="row"><button id="fd-guardar">Guardar dato</button><button id="fd-cancelar">Cancelar</button></div>
   </div>
   <div class="tbl-wrap"><table id="tabla-estructura"></table></div>
 </div>
@@ -199,13 +208,31 @@ async function cargar(){
 }
 
 // ---------- CREATIVOS ----------
+let creativosSort = { field: 'ID', asc: true };
 function renderCreativos(){
   if(!data) return;
-  let html = '<tr><th>ID</th><th>Título</th><th>Formato</th><th>Hook</th><th>Producto</th><th>Ángulo</th></tr>';
-  data.creativos.forEach(c=>{
+  const cols = [['ID','ID'],['Título','Título'],['Formato','Formato'],['Hook','Hook'],['Producto','Producto'],['Ángulo / dolor','Ángulo']];
+  let html = '<tr>' + cols.map(([field,label])=>{
+    const arrow = creativosSort.field===field ? (creativosSort.asc?' ▲':' ▼') : '';
+    return `<th class="th-sort" data-field="${field}" style="cursor:pointer">${label}${arrow}</th>`;
+  }).join('') + '</tr>';
+  const rows = data.creativos.slice().sort((a,b)=>{
+    const f = creativosSort.field;
+    const av = (a[f]||'').toString(), bv = (b[f]||'').toString();
+    return creativosSort.asc ? av.localeCompare(bv, 'es', {numeric:true}) : bv.localeCompare(av, 'es', {numeric:true});
+  });
+  rows.forEach(c=>{
     html += `<tr><td>${c.ID}</td><td><b>${c.Título||''}</b></td><td>${c.Formato||''}</td><td>${c.Hook||''}</td><td>${c.Producto||''}</td><td>${c['Ángulo / dolor']||''}</td></tr>`;
   });
   document.getElementById('tabla-creativos').innerHTML = html;
+  document.querySelectorAll('#tabla-creativos .th-sort').forEach(th=>{
+    th.onclick = ()=>{
+      const f = th.dataset.field;
+      if(creativosSort.field===f) creativosSort.asc = !creativosSort.asc;
+      else creativosSort = { field:f, asc:true };
+      renderCreativos();
+    };
+  });
 }
 function fillSelect(sel, options, placeholder){
   sel.innerHTML = (placeholder ? `<option value="">${placeholder}</option>` : '') + options.map(o=>`<option>${o}</option>`).join('');
@@ -267,8 +294,12 @@ document.getElementById('fp-guardar').onclick = async ()=>{
 
 // ---------- ESTRUCTURA ----------
 let soloActivos = true;
+let estructuraSort = { field: null, asc: true };
 document.getElementById('filter-activos').onclick = ()=>{ soloActivos=true; toggleFiltro(); renderEstructura(); };
 document.getElementById('filter-todos').onclick = ()=>{ soloActivos=false; toggleFiltro(); renderEstructura(); };
+document.getElementById('filtro-campana').onchange = renderEstructura;
+document.getElementById('filtro-conjunto').onchange = renderEstructura;
+document.getElementById('filtro-anuncio').oninput = renderEstructura;
 function toggleFiltro(){
   document.getElementById('filter-activos').classList.toggle('active', soloActivos);
   document.getElementById('filter-todos').classList.toggle('active', !soloActivos);
@@ -311,35 +342,72 @@ function ruleColor(metricas){
   }
   return '';
 }
+function formatFecha(v){
+  if(!v) return '';
+  const d = new Date(v);
+  if(isNaN(d)) return v;
+  return d.toISOString().slice(0,10);
+}
 function creativoById(id){ return data.creativos.find(c=>c.ID===id) || {}; }
 
 function renderEstructura(){
   if(!data) return;
   const blocks = weekBlocks(data.estructuraHeaders);
   const metricLabels = METRIC_LABELS[brand];
+
+  // poblar selects de filtro conservando la selección actual
+  const campSel = document.getElementById('filtro-campana');
+  const conjSel = document.getElementById('filtro-conjunto');
+  const campActual = campSel.value, conjActual = conjSel.value;
+  const campanas = [...new Set(data.estructura.map(e=>e.Campaña).filter(Boolean))].sort();
+  const conjuntos = [...new Set(data.estructura.map(e=>e.Conjunto).filter(Boolean))].sort();
+  campSel.innerHTML = '<option value="">Todas las campañas</option>' + campanas.map(c=>`<option ${c===campActual?'selected':''}>${c}</option>`).join('');
+  conjSel.innerHTML = '<option value="">Todos los conjuntos</option>' + conjuntos.map(c=>`<option ${c===conjActual?'selected':''}>${c}</option>`).join('');
+
+  const fCampana = campSel.value, fConjunto = conjSel.value, fAnuncio = document.getElementById('filtro-anuncio').value.trim().toLowerCase();
+
   let rows = data.estructura.slice();
   rows = rows.filter(r=> !soloActivos || r.Estado==='Activo');
-  rows.sort((a,b)=>{
-    if(a.Estado!==b.Estado) return a.Estado==='Activo' ? -1 : 1;
-    if(a.Campaña!==b.Campaña) return String(a.Campaña).localeCompare(String(b.Campaña));
-    if(a.Conjunto!==b.Conjunto) return String(a.Conjunto).localeCompare(String(b.Conjunto));
-    return new Date(b['Fecha inicio']) - new Date(a['Fecha inicio']);
-  });
+  if(fCampana) rows = rows.filter(r=> r.Campaña===fCampana);
+  if(fConjunto) rows = rows.filter(r=> r.Conjunto===fConjunto);
+  if(fAnuncio) rows = rows.filter(r=> String(r.Anuncio||'').toLowerCase().includes(fAnuncio));
 
-  let thead = '<tr><th></th><th>Campaña</th><th>Conjunto</th><th>Anuncio</th><th>Formato</th><th>Hook</th><th>Ángulo</th><th>Inicio</th>';
+  const hoy = new Date();
+  function antiguedad(r){ const d = new Date(r['Fecha inicio']); return isNaN(d) ? -1 : Math.round((hoy-d)/86400000); }
+
+  if(estructuraSort.field){
+    const f = estructuraSort.field;
+    rows.sort((a,b)=>{
+      let av, bv;
+      if(f==='Antigüedad'){ av = antiguedad(a); bv = antiguedad(b); return estructuraSort.asc ? av-bv : bv-av; }
+      av = (a[f]||'').toString(); bv = (b[f]||'').toString();
+      return estructuraSort.asc ? av.localeCompare(bv,'es',{numeric:true}) : bv.localeCompare(av,'es',{numeric:true});
+    });
+  } else {
+    rows.sort((a,b)=>{
+      if(a.Estado!==b.Estado) return a.Estado==='Activo' ? -1 : 1;
+      if(a.Campaña!==b.Campaña) return String(a.Campaña).localeCompare(String(b.Campaña));
+      if(a.Conjunto!==b.Conjunto) return String(a.Conjunto).localeCompare(String(b.Conjunto));
+      return new Date(b['Fecha inicio']) - new Date(a['Fecha inicio']);
+    });
+  }
+
+  const sortCols = [['Campaña','Campaña'],['Conjunto','Conjunto'],['Anuncio','Anuncio'],['Antigüedad','Inicio']];
+  let thead = '<tr><th></th>' + sortCols.map(([field,label])=>{
+    const arrow = estructuraSort.field===field ? (estructuraSort.asc?' ▲':' ▼') : '';
+    return `<th class="th-sort-e" data-field="${field}" style="cursor:pointer">${label}${arrow}</th>`;
+  }).join('');
   blocks.forEach(b=>{ thead += `<th colspan="${b.cols.length}" style="text-align:center;border-left:1px solid var(--border)">+${b.dias}d</th>`; });
-  thead += '</tr><tr><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th>';
+  thead += '<th></th></tr><tr><th></th><th></th><th></th><th></th><th></th>';
   blocks.forEach(b=>{ b.cols.forEach((c,i)=>{ thead += `<th style="${i===0?'border-left:1px solid var(--border)':''}">${metricLabels[i]||c}</th>`; }); });
-  thead += '</tr>';
+  thead += '<th></th></tr>';
 
   let tbody = '';
   rows.forEach(r=>{
-    const cre = creativoById(r.CreativoID);
     const off = r.Estado!=='Activo' ? 'off':'';
     tbody += `<tr class="${off}"><td><input type="checkbox" data-id="${r.ID}" ${r.Estado==='Activo'?'checked':''} class="toggle-estado"></td>`;
     tbody += `<td>${r.Campaña||''}</td><td>${r.Conjunto||''}</td><td><b>${r.Anuncio||''}</b></td>`;
-    tbody += `<td>${cre.Formato||''}</td><td>${cre.Hook||''}</td><td>${cre['Ángulo / dolor']||''}</td>`;
-    tbody += `<td>${r['Fecha inicio']||''}</td>`;
+    tbody += `<td>${formatFecha(r['Fecha inicio'])}</td>`;
     blocks.forEach(b=>{
       const metricas = {}; b.cols.forEach((c,i)=>{ metricas[metricLabels[i]] = r[c]; });
       const hasData = b.cols.some(c=> r[c]!=='' && r[c]!==undefined);
@@ -348,12 +416,24 @@ function renderEstructura(){
         tbody += `<td class="${cls}" style="${i===0?'border-left:1px solid var(--border)':''}">${r[c]!==undefined&&r[c]!==''? r[c]:'—'}</td>`;
       });
     });
+    tbody += `<td><button class="btn-editar-dato" data-id="${r.ID}" title="Cargar/editar dato semanal">✏️</button></td>`;
     tbody += '</tr>';
   });
   document.getElementById('tabla-estructura').innerHTML = '<thead>'+thead+'</thead><tbody>'+tbody+'</tbody>';
 
   document.querySelectorAll('.toggle-estado').forEach(el=>{
     el.onchange = async ()=>{ await postAction({ action:'updateEstructura', id:el.dataset.id, estado: el.checked?'Activo':'Apagado' }); cargar(); };
+  });
+  document.querySelectorAll('.btn-editar-dato').forEach(btn=>{
+    btn.onclick = ()=> openDatoForm(btn.dataset.id);
+  });
+  document.querySelectorAll('.th-sort-e').forEach(th=>{
+    th.onclick = ()=>{
+      const f = th.dataset.field;
+      if(estructuraSort.field===f) estructuraSort.asc = !estructuraSort.asc;
+      else estructuraSort = { field:f, asc: f!=='Antigüedad' };
+      renderEstructura();
+    };
   });
 }
 
@@ -432,13 +512,54 @@ document.getElementById('fe-guardar').onclick = async ()=>{
   document.getElementById('form-estructura').classList.add('hidden');
   cargar();
 };
-document.getElementById('btn-nuevo-dato').onclick = async ()=>{
-  const id = prompt('ID de la fila en Estructura (ej: AD-0001):'); if(!id) return;
-  const dias = prompt('Antigüedad en días (7, 14, 21...):'); if(!dias) return;
+function openDatoForm(presetId){
+  const sel = document.getElementById('fd-fila');
+  sel.innerHTML = '<option value="">(elegir)</option>' + data.estructura
+    .slice()
+    .sort((a,b)=> String(a.Campaña).localeCompare(String(b.Campaña)) || String(a.Conjunto).localeCompare(String(b.Conjunto)))
+    .map(r=>`<option value="${r.ID}">${r.Campaña} &gt; ${r.Conjunto} &gt; ${r.Anuncio}</option>`).join('');
+  if(presetId){ sel.value = presetId; sel.disabled = true; } else { sel.disabled = false; }
+
+  const blocks = weekBlocks(data.estructuraHeaders);
+  const existentes = blocks.map(b=>b.dias);
+  const sugeridas = [7,14,21,28,35,42,49,56,63,70];
+  const opcionesDias = [...new Set([...existentes, ...sugeridas])].sort((a,b)=>a-b);
+  const diasSel = document.getElementById('fd-dias');
+  diasSel.innerHTML = opcionesDias.map(d=>`<option value="${d}">+${d} días</option>`).join('') + '<option value="__otro__">Otra antigüedad...</option>';
+
   const labels = METRIC_LABELS[brand];
+  document.getElementById('fd-metricas').innerHTML = labels.map(l=>
+    `<div class="row"><label style="width:110px">${l}</label><input type="number" step="any" class="fd-metrica" data-metrica="${l}" style="flex:1"></div>`
+  ).join('');
+
+  document.getElementById('form-dato').classList.remove('hidden');
+}
+document.getElementById('btn-nuevo-dato').onclick = ()=>{
+  if(!data.estructura.length){ alert('Primero creá al menos una fila en Estructura.'); return; }
+  openDatoForm();
+};
+document.getElementById('fd-cancelar').onclick = ()=> document.getElementById('form-dato').classList.add('hidden');
+document.getElementById('fd-dias').onchange = (e)=>{
+  if(e.target.value === '__otro__'){
+    const v = prompt('Antigüedad en días:');
+    if(v){
+      const opt = document.createElement('option');
+      opt.value = v; opt.textContent = '+'+v+' días'; opt.selected = true;
+      e.target.insertBefore(opt, e.target.lastElementChild);
+    } else {
+      e.target.selectedIndex = 0;
+    }
+  }
+};
+document.getElementById('fd-guardar').onclick = async ()=>{
+  const id = document.getElementById('fd-fila').value;
+  if(!id){ alert('Elegí a qué fila corresponde el dato.'); return; }
+  const dias = parseInt(document.getElementById('fd-dias').value, 10);
+  if(!dias){ alert('Elegí la antigüedad.'); return; }
   const metricas = {};
-  for(const l of labels){ const v = prompt(l+':'); if(v===null) return; metricas[l] = parseFloat(v); }
-  await postAction({ action:'setWeekBlock', id, dias: parseInt(dias,10), metricas });
+  document.querySelectorAll('.fd-metrica').forEach(inp=>{ metricas[inp.dataset.metrica] = parseFloat(inp.value)||0; });
+  await postAction({ action:'setWeekBlock', id, dias, metricas });
+  document.getElementById('form-dato').classList.add('hidden');
   cargar();
 };
 
