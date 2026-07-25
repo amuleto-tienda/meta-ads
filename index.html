@@ -64,9 +64,9 @@
 <div id="panel-creativos">
   <div class="row"><button id="btn-nuevo-creativo">+ Creativo</button><button id="btn-refrescar-c">Refrescar</button></div>
   <div id="form-creativo" class="card hidden">
-    <div class="row"><label style="width:110px">Título</label><input id="fc-titulo" style="flex:1"></div>
+    <div class="row"><label style="width:110px">Título (Hook)</label><input id="fc-titulo" style="flex:1"></div>
     <div class="row"><label style="width:110px">Formato</label><select id="fc-formato" style="flex:1"></select><button data-tipo="formato" data-target="fc-formato" class="btn-add-opcion">+</button></div>
-    <div class="row"><label style="width:110px">Hook</label><select id="fc-hook" style="flex:1"></select><button data-tipo="hook" data-target="fc-hook" class="btn-add-opcion">+</button></div>
+    <div class="row"><label id="fc-hook-label" style="width:110px">Hook</label><select id="fc-hook" style="flex:1"></select><button data-tipo="hook" data-target="fc-hook" class="btn-add-opcion">+</button></div>
     <div class="row"><label style="width:110px">Producto</label><select id="fc-producto" style="flex:1"></select><button data-tipo="producto" data-target="fc-producto" class="btn-add-opcion">+</button></div>
     <div class="row"><label style="width:110px">Ángulo/dolor</label><select id="fc-angulo" style="flex:1"></select><button data-tipo="angulo" data-target="fc-angulo" class="btn-add-opcion">+</button></div>
     <div class="row"><button id="fc-guardar">Guardar creativo</button><button id="fc-cancelar">Cancelar</button></div>
@@ -149,6 +149,7 @@
     <button class="periodo active" data-dias="7">7 días</button>
     <button class="periodo" data-dias="15">15 días</button>
     <button class="periodo" data-dias="30">30 días</button>
+    <button class="periodo" data-dias="0">Máximo</button>
   </div>
   <div class="grid" id="resumen-cards"></div>
   <div class="grid" style="margin-top:16px" id="resumen-rankings"></div>
@@ -208,10 +209,11 @@ async function cargar(){
 }
 
 // ---------- CREATIVOS ----------
+function campoDosLabel(){ return brand==='amuleto' ? 'Estampa/Liso' : 'Hook'; }
 let creativosSort = { field: 'ID', asc: true };
 function renderCreativos(){
   if(!data) return;
-  const cols = [['ID','ID'],['Título','Título'],['Formato','Formato'],['Hook','Hook'],['Producto','Producto'],['Ángulo / dolor','Ángulo']];
+  const cols = [['ID','ID'],['Título','Título (Hook)'],['Formato','Formato'],['Hook',campoDosLabel()],['Producto','Producto'],['Ángulo / dolor','Ángulo']];
   let html = '<tr>' + cols.map(([field,label])=>{
     const arrow = creativosSort.field===field ? (creativosSort.asc?' ▲':' ▼') : '';
     return `<th class="th-sort" data-field="${field}" style="cursor:pointer">${label}${arrow}</th>`;
@@ -242,6 +244,7 @@ function openCreativoForm(){
   fillSelect(document.getElementById('fc-hook'), data.opciones.hook, '(elegir)');
   fillSelect(document.getElementById('fc-producto'), data.opciones.producto, '(elegir)');
   fillSelect(document.getElementById('fc-angulo'), data.opciones.angulo, '(elegir)');
+  document.getElementById('fc-hook-label').textContent = campoDosLabel();
   document.getElementById('fc-titulo').value = '';
   document.getElementById('form-creativo').classList.remove('hidden');
 }
@@ -605,71 +608,107 @@ function renderResumen(periodoDias){
   const metricLabels = METRIC_LABELS[brand];
   const perfMetric = metricLabels[1];
   const hoy = new Date();
-  const desde = new Date(hoy.getTime() - periodoDias*86400000);
+  const sinLimite = periodoDias === 0;
+  const desde = sinLimite ? new Date(0) : new Date(hoy.getTime() - periodoDias*86400000);
 
-  const puntos = [];
-  let sumaPerf=0, cuentaPerf=0, nuevosCount=0;
-  const estructurasConDatosEnPeriodo = new Set();
-
+  // puntos: un dato semanal (dentro del período) por fila de Estructura
+  const puntos = []; // {creativoId, campana, conjunto, dias, valor, compras}
   data.estructura.forEach(ad=>{
-    const cre = creativoById(ad.CreativoID);
     const inicio = new Date(ad['Fecha inicio']);
-    if(!isNaN(inicio) && (hoy-inicio) <= periodoDias*86400000) nuevosCount++;
     blocks.forEach(b=>{
       const fechaBloque = new Date(inicio.getTime() + b.dias*86400000);
-      if(fechaBloque<desde || fechaBloque>hoy) return;
+      if(!sinLimite && (fechaBloque<desde || fechaBloque>hoy)) return;
+      if(fechaBloque>hoy) return;
       const val = ad[b.cols[1]];
+      const compras = ad[b.cols[2]];
       if(val==='' || val===undefined) return;
-      estructurasConDatosEnPeriodo.add(ad.ID);
-      sumaPerf += parseFloat(val); cuentaPerf++;
       puntos.push({
-        formato: cre.Formato, hook: cre.Hook, angulo: cre['Ángulo / dolor'],
-        combo: (cre.Formato||'?')+' + '+(cre.Hook||'?'),
-        conjunto: ad.Conjunto, valor: parseFloat(val)
+        creativoId: ad.CreativoID, campana: ad.Campaña, conjunto: ad.Conjunto, estructuraId: ad.ID,
+        dias: b.dias, valor: parseFloat(val)||0, compras: parseFloat(compras)||0
       });
     });
   });
+  const puntosPositivos = puntos.filter(p=>p.valor>0);
 
-  const estructurasEnPeriodo = data.estructura.filter(ad=> estructurasConDatosEnPeriodo.has(ad.ID));
-  const activosEnPeriodo = estructurasEnPeriodo.filter(a=>a.Estado==='Activo');
-  const pctActivos = estructurasEnPeriodo.length ? Math.round(100*activosEnPeriodo.length/estructurasEnPeriodo.length) : null;
-  const antigDias = activosEnPeriodo.map(a=>{
-    const d = new Date(a['Fecha inicio']);
-    return isNaN(d) ? null : Math.round((hoy-d)/86400000);
-  }).filter(v=>v!==null);
-  const antigProm = antigDias.length ? Math.round(antigDias.reduce((a,b)=>a+b,0)/antigDias.length) : null;
+  // ROAS/Resultados promedio (solo valores > 0)
+  const roasProm = puntosPositivos.length ? puntosPositivos.reduce((a,p)=>a+p.valor,0)/puntosPositivos.length : null;
+
+  // agrupadores genéricos
+  function agrupar(campo){
+    const grupos = {};
+    puntosPositivos.forEach(p=>{
+      const k = p[campo] || '(sin dato)';
+      grupos[k] = grupos[k] || { valores:[], compras:0 };
+      grupos[k].valores.push(p.valor);
+      grupos[k].compras += p.compras;
+    });
+    return Object.keys(grupos).map(k=>({
+      name:k, compras: grupos[k].compras,
+      val: grupos[k].valores.reduce((a,b)=>a+b,0)/grupos[k].valores.length,
+      n: grupos[k].valores.length
+    })).sort((a,b)=>b.val-a.val);
+  }
+  const porConjunto = agrupar('conjunto');
+  const porCampana = agrupar('campana');
+  const porCreativo = agrupar('creativoId');
+  const mejorConjunto = porConjunto[0];
+  const mejorCampana = porCampana[0];
+  const mejorCreativo = porCreativo[0];
+  const mejorCreativoObj = mejorCreativo ? creativoById(mejorCreativo.name) : null;
+
+  // anuncios en rojo / verde (si alguna semana del período dio ese color, aunque no sea la más reciente)
+  let rojoCount=0, verdeCount=0;
+  data.estructura.forEach(ad=>{
+    const inicio = new Date(ad['Fecha inicio']);
+    let huboRojo=false, huboVerde=false;
+    blocks.forEach(b=>{
+      const fechaBloque = new Date(inicio.getTime() + b.dias*86400000);
+      if(!sinLimite && (fechaBloque<desde || fechaBloque>hoy)) return;
+      if(fechaBloque>hoy) return;
+      const metricas = {}; b.cols.forEach((c,i)=>{ metricas[metricLabels[i]] = ad[c]; });
+      const hasData = b.cols.some(c=> ad[c]!=='' && ad[c]!==undefined);
+      if(!hasData) return;
+      const color = ruleColor(metricas);
+      if(color==='r-bad') huboRojo=true;
+      if(color==='r-ok') huboVerde=true;
+    });
+    if(huboRojo) rojoCount++;
+    if(huboVerde) verdeCount++;
+  });
+
+  // antigüedad promedio de creativos, en cantidad de semanas con datos cargados (dentro del período)
+  const semanasPorCreativo = {};
+  puntos.forEach(p=>{
+    semanasPorCreativo[p.creativoId] = semanasPorCreativo[p.creativoId] || new Set();
+    semanasPorCreativo[p.creativoId].add(p.dias);
+  });
+  const semanasConteos = Object.values(semanasPorCreativo).map(s=>s.size);
+  const antigSemanasProm = semanasConteos.length ? (semanasConteos.reduce((a,b)=>a+b,0)/semanasConteos.length).toFixed(1) : null;
 
   document.getElementById('resumen-cards').innerHTML = `
-    <div class="metric"><p class="lbl">${perfMetric} promedio</p><p class="val">${cuentaPerf?(sumaPerf/cuentaPerf).toFixed(1):'—'}</p></div>
-    <div class="metric"><p class="lbl">Estructuras nuevas en el período</p><p class="val">${nuevosCount}</p></div>
-    <div class="metric"><p class="lbl">% activos (con datos en el período)</p><p class="val">${pctActivos===null?'—':pctActivos+'%'}</p></div>
-    <div class="metric"><p class="lbl">Antigüedad promedio (activos con datos en el período)</p><p class="val">${antigProm===null?'—':antigProm+' d'}</p></div>
+    <div class="metric"><p class="lbl">${perfMetric} promedio</p><p class="val">${roasProm===null?'—':roasProm.toFixed(1)}</p></div>
+    <div class="metric"><p class="lbl">Mejor conjunto</p><p class="val" style="font-size:15px">${mejorConjunto?mejorConjunto.name:'—'}</p><p class="lbl">${mejorConjunto?mejorConjunto.val.toFixed(1)+' · '+Math.round(mejorConjunto.compras)+' compras':''}</p></div>
+    <div class="metric"><p class="lbl">Mejor campaña</p><p class="val" style="font-size:15px">${mejorCampana?mejorCampana.name:'—'}</p><p class="lbl">${mejorCampana?mejorCampana.val.toFixed(1)+' · '+Math.round(mejorCampana.compras)+' compras':''}</p></div>
+    <div class="metric"><p class="lbl">Mejor creativo</p><p class="val" style="font-size:15px">${mejorCreativoObj?mejorCreativoObj.Título:'—'}</p><p class="lbl">${mejorCreativo?mejorCreativo.val.toFixed(1)+' · '+Math.round(mejorCreativo.compras)+' compras':''}${mejorCreativoObj?' · '+(mejorCreativoObj.Producto||'')+' · '+(mejorCreativoObj.Hook||''):''}</p></div>
+    <div class="metric"><p class="lbl">Anuncios en rojo</p><p class="val" style="color:var(--red-tx)">${rojoCount}</p></div>
+    <div class="metric"><p class="lbl">Anuncios en verde</p><p class="val" style="color:var(--green-tx)">${verdeCount}</p></div>
+    <div class="metric"><p class="lbl">Antigüedad promedio de creativos (semanas con datos)</p><p class="val">${antigSemanasProm===null?'—':antigSemanasProm}</p></div>
   `;
 
-  function rankBy(field){
-    const grupos = {};
-    puntos.forEach(p=>{ const k=p[field]||'(sin dato)'; grupos[k]=grupos[k]||[]; grupos[k].push(p.valor); });
-    return Object.keys(grupos).map(k=>({ name:k, val: grupos[k].reduce((a,b)=>a+b,0)/grupos[k].length, n: grupos[k].length }));
+  function top5Html(titulo, lista, asc){
+    const ordenada = lista.slice().sort((a,b)=> asc? a.val-b.val : b.val-a.val).slice(0,5);
+    if(!ordenada.length) return `<div class="card"><p class="lbl" style="font-weight:bold">${titulo}</p><p class="lbl">Sin datos en este período</p></div>`;
+    let html = `<div class="card"><p class="lbl" style="font-weight:bold;margin-bottom:8px">${titulo}</p><table><tr><th>${perfMetric}</th><th>Hook (título)</th><th>Formato</th><th>Ángulo/dolor</th><th>Producto</th></tr>`;
+    ordenada.forEach(it=>{
+      const cre = creativoById(it.name) || {};
+      html += `<tr><td><b>${it.val.toFixed(1)}</b></td><td>${cre.Título||''}</td><td>${cre.Formato||''}</td><td>${cre['Ángulo / dolor']||''}</td><td>${cre.Producto||''}</td></tr>`;
+    });
+    html += '</table></div>';
+    return html;
   }
-  function rankHtml(title, arr, asc){
-    const sorted = arr.slice().sort((a,b)=> asc? a.val-b.val : b.val-a.val).slice(0,5);
-    if(!sorted.length) return `<div><p class="lbl" style="font-weight:bold;margin-bottom:6px">${title}</p><div class="rank"><div><span>Sin datos en este período</span></div></div></div>`;
-    return `<div><p class="lbl" style="font-weight:bold;margin-bottom:6px">${title}</p><div class="rank">${
-      sorted.map((it,i)=>`<div><span>${i+1}. ${it.name} <span style="color:var(--muted)">(${it.n})</span></span><span><b>${it.val.toFixed(1)}</b></span></div>`).join('')
-    }</div></div>`;
-  }
-  const byFmt=rankBy('formato'), byHook=rankBy('hook'), byAng=rankBy('angulo'), byConj=rankBy('conjunto'), byCombo=rankBy('combo');
   document.getElementById('resumen-rankings').innerHTML =
-    rankHtml('Top 5 formatos — mejor '+perfMetric, byFmt, false) +
-    rankHtml('Top 5 formatos — peor '+perfMetric, byFmt, true) +
-    rankHtml('Top 5 hooks — mejor '+perfMetric, byHook, false) +
-    rankHtml('Top 5 hooks — peor '+perfMetric, byHook, true) +
-    rankHtml('Top 5 ángulos — mejor '+perfMetric, byAng, false) +
-    rankHtml('Top 5 ángulos — peor '+perfMetric, byAng, true) +
-    rankHtml('Top 5 conjuntos (públicos) — mejor '+perfMetric, byConj, false) +
-    rankHtml('Top 5 conjuntos (públicos) — peor '+perfMetric, byConj, true) +
-    rankHtml('Top 5 combinaciones formato+hook — mejor '+perfMetric, byCombo, false) +
-    rankHtml('Top 5 combinaciones formato+hook — peor '+perfMetric, byCombo, true);
+    top5Html('TOP 5 MEJORES', porCreativo, false) +
+    top5Html('TOP 5 PEORES', porCreativo, true);
 }
 
 cargar();
